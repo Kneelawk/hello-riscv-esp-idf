@@ -1,3 +1,4 @@
+use std::time::Duration;
 #[allow(unused)]
 use esp_idf_sys as _; // If using the `binstart` feature of `esp-idf-sys`, always keep this module imported
 
@@ -7,4 +8,8 @@ fn main() {
     esp_idf_sys::link_patches();
 
     println!("Hello, world!");
+
+    std::thread::sleep(Duration::from_millis(1000));
+
+    println!("Slept for 1 second!");
 }
