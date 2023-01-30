@@ -9,6 +9,8 @@ fn main() {
 
     println!("Hello, world!");
 
+    // This crashes on Xtensa processors for some reason :/
+    // Good thing this is a RISC-V processor :)
     std::thread::sleep(Duration::from_millis(1000));
 
     println!("Slept for 1 second!");
