@@ -2,12 +2,11 @@
 extern crate log;
 
 use esp_idf_hal::peripherals::Peripherals;
+use esp_idf_hal::rmt::config::TransmitConfig;
 use esp_idf_hal::rmt::{FixedLengthSignal, PinState, Pulse, TxRmtDriver};
 #[allow(unused)]
 use esp_idf_sys as _;
 use std::time::Duration;
-use esp_idf_hal::rmt::config::TransmitConfig;
-use rand::{Rng, thread_rng};
 
 fn main() {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -31,26 +30,16 @@ fn main() {
     let config = TransmitConfig::new().clock_divider(1);
     let mut tx = TxRmtDriver::new(channel, pin, &config).expect("Error getting remote util");
 
-    let mut rand = thread_rng();
+    let mut hue = 0;
 
     loop {
-        neopixel(RGB {
-            r: rand.gen(),
-            g: rand.gen(),
-            b: rand.gen(),
-        }, &mut tx).expect("Error setting led");
+        let rgb = hsb_to_rgb(hue, 255, 255);
 
-        std::thread::sleep(Duration::from_millis(100));
+        neopixel(rgb, &mut tx).expect("Error setting led");
 
-        neopixel(RGB {
-            r: 0,
-            g: 0,
-            b: 0,
-        }, &mut tx).expect("Error setting led");
+        std::thread::sleep(Duration::from_millis(20));
 
-        info!("Blinked.");
-
-        std::thread::sleep(Duration::from_millis(100));
+        hue = (hue + 1) % 1536;
     }
 }
 
@@ -87,4 +76,68 @@ fn neopixel(rgb: RGB, tx: &mut TxRmtDriver) -> anyhow::Result<()> {
     tx.start_blocking(&signal)?;
 
     Ok(())
+}
+
+fn hsb_to_rgb(hue: u16, saturation: u8, brightness: u8) -> RGB {
+    if saturation == 0 {
+        RGB {
+            r: brightness,
+            g: brightness,
+            b: brightness,
+        }
+    } else {
+        let hue = hue % 1536;
+
+        let offset = match hue {
+            0..=255 => hue,
+            256..=511 => hue - 256,
+            512..=767 => hue - 512,
+            768..=1023 => hue - 768,
+            1024..=1279 => hue - 1024,
+            1280..=1535 => hue - 1280,
+            _ => unreachable!(),
+        } as u8;
+
+        let off = scale8(brightness, 255 - saturation);
+        let fade_out = scale8(brightness, 255 - scale8(saturation, offset));
+        let fade_in = scale8(brightness, 255 - scale8(saturation, 255 - offset));
+
+        match hue {
+            0..=255 => RGB {
+                r: brightness,
+                g: fade_in,
+                b: off,
+            },
+            256..=511 => RGB {
+                r: fade_out,
+                g: brightness,
+                b: off,
+            },
+            512..=767 => RGB {
+                r: off,
+                g: brightness,
+                b: fade_in,
+            },
+            768..=1023 => RGB {
+                r: off,
+                g: fade_out,
+                b: brightness,
+            },
+            1024..=1279 => RGB {
+                r: fade_in,
+                g: off,
+                b: brightness,
+            },
+            1280..=1535 => RGB {
+                r: brightness,
+                g: off,
+                b: fade_out,
+            },
+            _ => unreachable!(),
+        }
+    }
+}
+
+fn scale8(a: u8, b: u8) -> u8 {
+    ((a as u16 * b as u16) >> 8) as u8
 }
