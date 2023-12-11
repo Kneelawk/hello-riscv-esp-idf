@@ -3,7 +3,7 @@ extern crate log;
 
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_hal::rmt::config::TransmitConfig;
-use esp_idf_hal::rmt::{FixedLengthSignal, PinState, Pulse, TxRmtDriver};
+use esp_idf_hal::rmt::{PinState, Pulse, TxRmtDriver, VariableLengthSignal};
 #[allow(unused)]
 use esp_idf_sys as _;
 use std::time::Duration;
@@ -25,21 +25,24 @@ fn main() {
 
     let p = Peripherals::take().expect("No Peripherals!");
 
-    let pin = p.pins.gpio8;
+    let pin = p.pins.gpio4;
     let channel = p.rmt.channel0;
     let config = TransmitConfig::new().clock_divider(1);
     let mut tx = TxRmtDriver::new(channel, pin, &config).expect("Error getting remote util");
 
     let mut hue = 0;
+    let mut rgb_list = vec![];
 
     loop {
-        let rgb = hsb_to_rgb(hue, 255, 255);
+        rgb_list.extend((0..300).map(|off| hsb_to_rgb(hue + off, 255, 255)));
 
-        neopixel(rgb, &mut tx).expect("Error setting led");
+        neopixel(&rgb_list, &mut tx).expect("Error setting led");
 
         std::thread::sleep(Duration::from_millis(20));
 
         hue = (hue + 1) % 1536;
+
+        rgb_list.clear();
     }
 }
 
@@ -55,23 +58,26 @@ fn ns(nanos: u64) -> Duration {
     Duration::from_nanos(nanos)
 }
 
-fn neopixel(rgb: RGB, tx: &mut TxRmtDriver) -> anyhow::Result<()> {
-    // e.g. rgb: (1,2,4)
-    // G        R        B
-    // 7      0 7      0 7      0
-    // 00000010 00000001 00000100
-    let color: u32 = ((rgb.g as u32) << 16) | ((rgb.r as u32) << 8) | rgb.b as u32;
+fn neopixel(rgb_list: &[RGB], tx: &mut TxRmtDriver) -> anyhow::Result<()> {
     let ticks_hz = tx.counter_clock()?;
     let t0h = Pulse::new_with_duration(ticks_hz, PinState::High, &ns(350))?;
     let t0l = Pulse::new_with_duration(ticks_hz, PinState::Low, &ns(800))?;
     let t1h = Pulse::new_with_duration(ticks_hz, PinState::High, &ns(700))?;
     let t1l = Pulse::new_with_duration(ticks_hz, PinState::Low, &ns(600))?;
-    let mut signal = FixedLengthSignal::<24>::new();
-    for i in (0..24).rev() {
-        let p = 2_u32.pow(i);
-        let bit = p & color != 0;
-        let (high_pulse, low_pulse) = if bit { (t1h, t1l) } else { (t0h, t0l) };
-        signal.set(23 - i as usize, &(high_pulse, low_pulse))?;
+    // 2 pulses per bit, 8 bits per byte, 3 bytes per color
+    let mut signal = VariableLengthSignal::with_capacity(48 * rgb_list.len());
+    for rgb in rgb_list.iter() {
+        // e.g. rgb: (1,2,4)
+        // G        R        B
+        // 7      0 7      0 7      0
+        // 00000010 00000001 00000100
+        let color: u32 = ((rgb.g as u32) << 16) | ((rgb.r as u32) << 8) | rgb.b as u32;
+        for i in (0..24).rev() {
+            let p = 2_u32.pow(i);
+            let bit = p & color != 0;
+            let (high_pulse, low_pulse) = if bit { (t1h, t1l) } else { (t0h, t0l) };
+            signal.push(&[high_pulse, low_pulse])?;
+        }
     }
     tx.start_blocking(&signal)?;
 
