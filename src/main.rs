@@ -25,7 +25,7 @@ fn main() {
 
     let p = Peripherals::take().expect("No Peripherals!");
 
-    let pin = p.pins.gpio4;
+    let pin = p.pins.gpio8;
     let channel = p.rmt.channel0;
     let config = TransmitConfig::new().clock_divider(1);
     let mut tx = TxRmtDriver::new(channel, pin, &config).expect("Error getting remote util");
@@ -34,13 +34,14 @@ fn main() {
     let mut rgb_list = vec![];
 
     loop {
-        rgb_list.extend((0..300).map(|off| hsb_to_rgb(hue + off, 255, 255)));
+        // rgb_list.extend((0..300).map(|off| hsb_to_rgb(hue + off, 255, 255)));
+        rgb_list.push(hsb_to_rgb(hue, 255, 255));
 
         neopixel(&rgb_list, &mut tx).expect("Error setting led");
 
         std::thread::sleep(Duration::from_millis(20));
 
-        hue = (hue + 1) % 1536;
+        hue = (hue + 8) % 1536;
 
         rgb_list.clear();
     }
